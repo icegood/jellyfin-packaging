@@ -206,8 +206,8 @@ COPY --from=server /server /jellyfin
 COPY --from=web /web /jellyfin/jellyfin-web
 
 ARG JELLYFIN_VERSION
-LABEL "org.opencontainers.image.source"="https://github.com/jellyfin/jellyfin-packaging"
-LABEL "org.opencontainers.image.title"="Jellyfin"
+LABEL "org.opencontainers.image.source"="https://github.com/icegood/jellyfin-packaging"
+LABEL "org.opencontainers.image.title"="Jellyfin (icegood)"
 LABEL "org.opencontainers.image.description"="The Free Software Media System"
 LABEL "org.opencontainers.image.documentation"="https://jellyfin.org/docs/"
 LABEL "org.opencontainers.image.version"="${JELLYFIN_VERSION}"
