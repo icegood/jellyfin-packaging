@@ -1,0 +1,33 @@
+services:
+  jellyfin:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile
+      network: host
+      args:
+        PACKAGE_ARCH: amd64
+        DOTNET_ARCH: x64
+        QEMU_ARCH: x86_64
+        IMAGE_ARCH: amd64
+        TARGET_ARCH: amd64
+        JELLYFIN_VERSION: ice_master
+        CONFIG: Release
+        DOTNET_VERSION: '8.0'
+        NODEJS_VERSION: 20
+    ports:
+      - "8900:8096"  # Host:Container
+      - "8901:8920"  # Host:Container
+    cap_add:
+      - NET_ADMIN
+    image: jellyfin/jellyfin:ice_master-amd64
+    container_name: jellyfin_all_in_one_runner
+    network_mode: 'host'
+    volumes:
+      - /home/ice/external:/external
+      - /media/ice/backup/test_media:/test_media
+      - /media/ice/backup/jellyfin_container/config:/config
+      - /media/ice/backup/jellyfin_container/cache:/cache
+    restart: 'unless-stopped'
+    # Optional - may be necessary for docker healthcheck to pass if running in host network mode
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'

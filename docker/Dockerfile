@@ -2,12 +2,6 @@
 ARG DOTNET_VERSION=8.0
 ARG NODEJS_VERSION=20
 
-# Combined image version (Debian)
-ARG OS_VERSION=bookworm
-
-# Jellyfin FFMPEG package
-ARG FFMPEG_PACKAGE=jellyfin-ffmpeg7
-
 # https://github.com/intel/compute-runtime/releases
 ARG GMMLIB_VER=22.7.0
 # >= Gen12 graphics (current)
@@ -30,76 +24,46 @@ ARG DOTNET_ARCH
 # QEMU architecture (x86_64, aarch64, arm), set by build script
 ARG QEMU_ARCH
 # Base Image architecture (amd64, arm64v8, arm32v7), set by build script
-ARG IMAGE_ARCH
+ARG IMAGE_ARCH=x64
 # Target platform architecture (amd64, arm64/v8, arm/v7), set by build script
 ARG TARGET_ARCH
 
 # Jellyfin version
 ARG JELLYFIN_VERSION
-
-#
-# Build the web artifacts
-#
-FROM node:${NODEJS_VERSION}-alpine as web
-
-ARG SOURCE_DIR=/src
-ARG ARTIFACT_DIR=/web
-
-ARG JELLYFIN_VERSION
-ENV JELLYFIN_VERSION=${JELLYFIN_VERSION}
-
-RUN apk add \
-    autoconf \
-    g++ \
-    make \
-    libpng-dev \
-    gifsicle \
-    alpine-sdk \
-    automake \
-    libtool \
-    gcc \
-    musl-dev \
-    nasm \
-    python3 \
-    git \
- && git config --global --add safe.directory /jellyfin/jellyfin-web
-
-WORKDIR ${SOURCE_DIR}
-COPY jellyfin-web .
-
-RUN npm ci --no-audit --unsafe-perm \
- && npm run build:production \
- && mv dist ${ARTIFACT_DIR}
-
+ ARG DOTNET_VERSION
 #
 # Build the server artifacts
 #
-FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-${OS_VERSION}-slim as server
+FROM jellyfin_backend_runner_stage:ice_master-amd64 AS server
 
 ARG DOTNET_ARCH
-
-ARG SOURCE_DIR=/src
 ARG ARTIFACT_DIR=/server
 
 ARG CONFIG=Release
 ENV CONFIG=${CONFIG}
-
-WORKDIR ${SOURCE_DIR}
-COPY jellyfin-server .
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
+WORKDIR /opt/jellyfin-server
+
+USER root
+
+RUN mkdir -p ${ARTIFACT_DIR}
+
+RUN chmod 777 ${ARTIFACT_DIR}
+
+USER vscode
+
 RUN dotnet publish Jellyfin.Server --arch ${DOTNET_ARCH} --configuration ${CONFIG} \
-    --output="${ARTIFACT_DIR}" --self-contained \
-    -p:DebugSymbols=false -p:DebugType=none
+    --output="${ARTIFACT_DIR}" --self-contained -p:DebugSymbols=false -p:DebugType=none
+
+# qemu
+FROM multiarch/qemu-user-static:x86_64-${QEMU_ARCH} AS qemu
+
 
 #
 # Build the final combined image
 #
-FROM multiarch/qemu-user-static:x86_64-${QEMU_ARCH} as qemu
-FROM --platform=linux/${TARGET_ARCH} ${IMAGE_ARCH}/debian:${OS_VERSION}-slim as combined
-
-ARG OS_VERSION
-ARG FFMPEG_PACKAGE
+FROM --platform=linux/${TARGET_ARCH} amd64/debian:bookworm-slim@sha256:28c1e76b454bb65a9138a2562708e7fa3a937ae88a36b30fe8a12e3e1d447ce3 AS combined
 
 ARG GMMLIB_VER
 ARG IGC2_VER
@@ -132,7 +96,7 @@ ENV DEBIAN_FRONTEND="noninteractive" \
     JELLYFIN_CONFIG_DIR="/config/config" \
     JELLYFIN_LOG_DIR="/config/log" \
     JELLYFIN_WEB_DIR="/jellyfin/jellyfin-web" \
-    JELLYFIN_FFMPEG="/usr/lib/jellyfin-ffmpeg/ffmpeg"
+    JELLYFIN_FFMPEG="/opt/ffmpeg_ice/bin/ffmpeg"
 
 # required for fontconfig cache
 ENV XDG_CACHE_HOME=${JELLYFIN_CACHE_DIR}
@@ -151,12 +115,8 @@ RUN apt-get update \
     gnupg \
     curl \
     apt-transport-https \
- && curl -fsSL https://repo.jellyfin.org/jellyfin_team.gpg.key \
-  | gpg --dearmor -o /etc/apt/trusted.gpg.d/debian-jellyfin.gpg \
- && echo "deb [arch=${PACKAGE_ARCH}] https://repo.jellyfin.org/master/debian ${OS_VERSION} main" > /etc/apt/sources.list.d/jellyfin.list \
  && apt-get update \
  && apt-get install --no-install-recommends --no-install-suggests --yes \
-    ${FFMPEG_PACKAGE} \
     openssl \
     locales \
     libfontconfig1 \
@@ -167,43 +127,25 @@ RUN apt-get update \
  && apt-get autoremove --yes \
  && rm -rf /var/cache/apt/archives* /var/lib/apt/lists/*
 
-# Intel OpenCL Tone mapping dependencies:
-RUN if test "${PACKAGE_ARCH}" = "amd64"; then \
-    mkdir intel-compute-runtime \
- && cd intel-compute-runtime \
- && curl -LO https://github.com/intel/compute-runtime/releases/download/${NEO_VER}/libigdgmm12_${GMMLIB_VER}_amd64.deb \
-         -LO https://github.com/intel/intel-graphics-compiler/releases/download/v${IGC2_VER}/intel-igc-core-2_${IGC2_VER}+${IGC2_BUILD}_amd64.deb \
-         -LO https://github.com/intel/intel-graphics-compiler/releases/download/v${IGC2_VER}/intel-igc-opencl-2_${IGC2_VER}+${IGC2_BUILD}_amd64.deb \
-         -LO https://github.com/intel/compute-runtime/releases/download/${NEO_VER}/intel-opencl-icd_${NEO_VER}_amd64.deb \
-         -LO https://github.com/intel/intel-graphics-compiler/releases/download/igc-${IGC1_LEGACY_VER}/intel-igc-core_${IGC1_LEGACY_VER}_amd64.deb \
-         -LO https://github.com/intel/intel-graphics-compiler/releases/download/igc-${IGC1_LEGACY_VER}/intel-igc-opencl_${IGC1_LEGACY_VER}_amd64.deb \
-         -LO https://github.com/intel/compute-runtime/releases/download/${NEO_LEGACY_VER}/intel-opencl-icd-legacy1_${NEO_LEGACY_VER}_amd64.deb \
- && apt-get install --no-install-recommends --no-install-suggests -f -y ./*.deb \
- && cd .. \
- && rm -rf intel-compute-runtime \
- ; fi \
- && apt-get clean autoclean --yes \
- && apt-get autoremove --yes \
- && rm -rf /var/cache/apt/archives* /var/lib/apt/lists/*
-
-# Rockchip RK3588 libmali OpenCL dependencies:
-RUN if test "${PACKAGE_ARCH}" = "arm64"; then \
-    mkdir libmali-rockchip \
- && cd libmali-rockchip \
- && curl -LO https://github.com/tsukumijima/libmali-rockchip/releases/download/${MALI_PKG_TAG}/libmali-${MALI_PKG_CFG}_${MALI_PKG_VER}.deb \
- && apt-get install --no-install-recommends --no-install-suggests -f -y ./*.deb \
- && cd .. \
- && rm -rf libmali-rockchip \
- ; fi \
- && apt-get clean autoclean --yes \
- && apt-get autoremove --yes \
- && rm -rf /var/cache/apt/archives* /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y imagemagick && apt-get clean
 
 RUN mkdir -p ${JELLYFIN_DATA_DIR} ${JELLYFIN_CACHE_DIR} \
  && chmod 777 ${JELLYFIN_DATA_DIR} ${JELLYFIN_CACHE_DIR}
 
+RUN mkdir -p /opt/ffmpeg_ice
+
+COPY --from=server /opt/ffmpeg_ice /opt/ffmpeg_ice
+
+COPY --from=server /usr/lib/x86_64-linux-gnu/libvpx*.so* /usr/lib/x86_64-linux-gnu/libmp3lame*.so* \
+    /usr/lib/x86_64-linux-gnu/libnuma*.so* /usr/lib/x86_64-linux-gnu/libx26*.so* \
+    /usr/lib/x86_64-linux-gnu/libxcb*.so* /usr/lib/x86_64-linux-gnu/libfontconfig*.so* \
+    /usr/lib/x86_64-linux-gnu/libxvid*so* /usr/lib/x86_64-linux-gnu
+
 COPY --from=server /server /jellyfin
-COPY --from=web /web /jellyfin/jellyfin-web
+
+# don't need middle container, instead copy eight from context 
+# however web container should guarantee to get .dist-build properly
+COPY jellyfin-web/.dist-build /jellyfin/jellyfin-web
 
 ARG JELLYFIN_VERSION
 LABEL "org.opencontainers.image.source"="https://github.com/icegood/jellyfin-packaging"
@@ -214,8 +156,11 @@ LABEL "org.opencontainers.image.version"="${JELLYFIN_VERSION}"
 LABEL "org.opencontainers.image.url"="https://jellyfin.org"
 
 EXPOSE 8096
+RUN apt-get update && apt-get install libicu72
+RUN apt-get update && apt-get install -y less net-tools iproute2 && apt-get clean
 VOLUME ${JELLYFIN_DATA_DIR} ${JELLYFIN_CACHE_DIR}
-ENTRYPOINT ["/jellyfin/jellyfin"]
+# override by "/jellyfin/jellyfin" in prod. Locally should be checked right from inside as int test
+CMD ["sh", "-c", "tail -f /dev/null"]
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=10s --retries=3 \
      CMD curl --noproxy 'localhost' -Lk -fsS "${HEALTHCHECK_URL}" || exit 1
