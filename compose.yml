@@ -12,7 +12,7 @@ services:
         TARGET_ARCH: amd64
         JELLYFIN_VERSION: ice_master
         CONFIG: Release
-        DOTNET_VERSION: '8.0'
+        DOTNET_VERSION: '9.0'
         NODEJS_VERSION: 20
     ports:
       - "8900:8096"  # Host:Container

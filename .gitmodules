@@ -1,12 +1,12 @@
 [submodule "jellyfin-server"]
 	path = jellyfin-server
 	url = https://github.com/icegood/jellyfin
-	branch = ice/mymaster
+	branch = v10.11.0-rc3_ice
 [submodule "jellyfin-web"]
 	path = jellyfin-web
 	url = https://github.com/icegood/jellyfin-web
-    branch = ice/mymaster
+    branch = v10.11.0-rc3_ice
 [submodule "jellyfin-ffmpeg"]
 	path = jellyfin-ffmpeg
 	url = https://github.com/icegood/jellyfin-ffmpeg
-	branch = ice/mymaster
+	branch = v10.11.0-rc3_ice

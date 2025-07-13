@@ -1,6 +1,3 @@
 # Ignore temporary build files
-build/
-# Ignore the output artifact directory
-out/
-# Ignore the generated Debian changelog
-debian/changelog
+1.tar
+size_report.txt
